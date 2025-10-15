@@ -1,0 +1,795 @@
+import os
+import json
+import logging
+import concurrent.futures
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+from dotenv import load_dotenv
+import google.generativeai as genai
+from typing import List, Optional, Union, Dict
+from pydantic import BaseModel, Field
+import re
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)
+
+# Environment variables
+load_dotenv()
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-pro").strip()
+USE_STUB = os.getenv("USE_STUB", "false").lower() in ("1", "true", "yes")
+GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
+# Configure Gemini API
+if GOOGLE_API_KEY and not USE_STUB:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    API_AVAILABLE = True
+else:
+    API_AVAILABLE = False
+
+class Task(BaseModel):
+    task_id: int
+    description: str
+    estimated_days: int
+    depends_on_id: int = 0
+    priority: Optional[str] = Field(None, description="Priority level of the task")
+    skills_needed: Optional[List[str]] = Field(None, description="Required skills for the task")
+    resources: Optional[List[str]] = Field(None, description="Required resources for the task")
+
+class PlanningResponse(BaseModel):
+    tasks: List[Task]
+    total_duration: int
+    key_milestones: Optional[List[str]] = None
+    risk_factors: Optional[List[str]] = None
+    recommendations: Optional[List[str]] = None
+
+def is_task_prompt(user_input: str) -> bool:
+    """Detect if the user input is requesting a task breakdown."""
+    task_keywords = [
+        "plan", "task", "break down", "breakdown", "steps", "schedule",
+        "organize", "create", "build", "develop", "implement", "launch",
+        "how to", "what steps", "roadmap"
+    ]
+    return any(keyword in user_input.lower() for keyword in task_keywords)
+
+def construct_prompt(user_input: str, is_task: bool = True) -> str:
+    """Construct a dynamic prompt based on user input."""
+    if is_task:
+        return f"""You are an expert project manager AI assistant. Analyze this goal and create a detailed project plan:
+        
+GOAL: {user_input}
+
+Provide a comprehensive breakdown including:
+
+1. A sequence of 4-8 tasks with:
+   - Clear, detailed descriptions with bullet points for specific actions
+   - Realistic time estimates in days
+   - Dependencies between tasks
+   - Required skills or resources
+   - Priority level (High/Medium/Low)
+
+2. Additional planning insights:
+   - Key milestones to watch for
+   - Potential risk factors
+   - Specific recommendations
+
+Format the response as JSON:
+{{
+    "tasks": [
+        {{
+            "task_id": 1,
+            "description": "Task name\\nAction Items:\\n- Specific step 1\\n- Specific step 2\\n- Specific step 3",
+            "estimated_days": X,
+            "depends_on_id": 0,
+            "priority": "High/Medium/Low",
+            "skills_needed": ["skill1", "skill2"],
+            "resources": ["resource1", "resource2"]
+        }}
+    ],
+    "total_duration": X,
+    "key_milestones": ["milestone1", "milestone2"],
+    "risk_factors": ["risk1", "risk2"],
+    "recommendations": ["recommendation1", "recommendation2"]
+}}
+
+Make all tasks:
+- Specific and actionable
+- Realistically scoped
+- Industry-standard and professional
+- Properly sequenced with clear dependencies"""
+    else:
+        return f"""You are an expert consultant. Please provide detailed, professional advice for this query:
+
+QUERY: {user_input}
+
+Give practical, actionable guidance that is:
+- Specific and implementable
+- Based on industry best practices
+- Backed by professional experience
+- Organized in clear sections
+
+Focus on providing real-world, concrete steps and recommendations."""
+
+def parse_ai_response(response_text: str) -> Union[Dict, str]:
+    """Parse the AI response and extract JSON if present."""
+    try:
+        # Look for JSON structure in the response
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            json_str = json_match.group(0)
+            return json.loads(json_str)
+        return response_text
+    except json.JSONDecodeError:
+        return response_text
+
+def generate_task_breakdown(goal: str) -> dict:
+    """Generate a comprehensive task breakdown using Gemini AI"""
+    try:
+        if not is_task_prompt(goal):
+            return {
+                "status": "ERROR", 
+                "error": "This input doesn't appear to be a task-based request. Please try rephrasing with action-oriented terms."
+            }
+
+        if not API_AVAILABLE and not USE_STUB:
+            return {"status": "ERROR", "error": "API is not available and stub mode is disabled"}
+
+        if USE_STUB:
+            # Dynamic stub response that adapts to the input
+            response_data = {
+                "tasks": [
+                    {
+                        "task_id": 1,
+                        "description": f"Initial Research & Planning\nAction Items:\n- Research best practices for {goal}\n- Identify key requirements\n- Define project scope\n- Create initial timeline",
+                        "estimated_days": 3,
+                        "depends_on_id": 0,
+                        "priority": "High",
+                        "skills_needed": ["Research", "Planning", "Analysis"],
+                        "resources": ["Project documentation", "Industry reports"]
+                    },
+                    {
+                        "task_id": 2,
+                        "description": f"Design & Strategy\nAction Items:\n- Develop detailed approach for {goal}\n- Create implementation plan\n- Define success metrics\n- Prepare resource allocation",
+                        "estimated_days": 4,
+                        "depends_on_id": 1,
+                        "priority": "High",
+                        "skills_needed": ["Strategy", "Design Thinking"],
+                        "resources": ["Design tools", "Planning software"]
+                    },
+                    {
+                        "task_id": 3,
+                        "description": "Implementation & Development\nAction Items:\n- Execute core deliverables\n- Track progress\n- Coordinate with team\n- Document processes",
+                        "estimated_days": 5,
+                        "depends_on_id": 2,
+                        "priority": "Medium",
+                        "skills_needed": ["Project Management", "Technical Skills"],
+                        "resources": ["Development tools", "Team collaboration platform"]
+                    },
+                    {
+                        "task_id": 4,
+                        "description": "Testing & Refinement\nAction Items:\n- Conduct thorough testing\n- Gather feedback\n- Make improvements\n- Prepare for launch",
+                        "estimated_days": 3,
+                        "depends_on_id": 3,
+                        "priority": "Medium",
+                        "skills_needed": ["Quality Assurance", "Communication"],
+                        "resources": ["Testing tools", "Feedback forms"]
+                    }
+                ],
+                "total_duration": 15,
+                "key_milestones": [
+                    f"Complete research and planning for {goal}",
+                    "Strategy and design approval",
+                    "Core implementation finished",
+                    "Final testing and launch readiness"
+                ],
+                "risk_factors": [
+                    "Timeline constraints",
+                    "Resource availability",
+                    "Technical challenges",
+                    "Stakeholder alignment"
+                ],
+                "recommendations": [
+                    "Start with thorough research phase",
+                    "Maintain regular stakeholder communication",
+                    "Document all decisions and progress",
+                    "Build in buffer time for unexpected issues"
+                ]
+            }
+            return {"status": "SUCCESS", "data": response_data}
+
+        # Use Gemini API for dynamic response
+        prompt = construct_prompt(goal, is_task=True)
+        model = genai.GenerativeModel('gemini-pro')
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(lambda: model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.7,
+                    max_output_tokens=2048
+                )
+            ))
+            try:
+                response = future.result(timeout=25)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                raise TimeoutError("AI call timed out after 25 seconds")
+
+        if not response.text:
+            raise ValueError("Empty response from AI")
+
+        # Parse the AI response
+        response_data = parse_ai_response(response.text)
+        if isinstance(response_data, str):
+            # If we got a string instead of JSON, wrap it in a proper response
+            return {
+                "status": "SUCCESS",
+                "data": {
+                    "tasks": [{
+                        "task_id": 1,
+                        "description": response_data,
+                        "estimated_days": 1,
+                        "depends_on_id": 0
+                    }]
+                }
+            }
+
+        return {"status": "SUCCESS", "data": response_data}
+
+    except Exception as e:
+        logging.error(f"Error in generate_task_breakdown: {str(e)}")
+        return {
+            "status": "ERROR",
+            "error": f"Failed to generate plan: {str(e)}"
+        }
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+@app.route("/generate-plan", methods=["POST"])
+def generate_plan():
+    try:
+        data = request.get_json()
+        if not data or "goal" not in data:
+            return jsonify({"status": "ERROR", "error": "No goal provided"}), 400
+        
+        goal = data["goal"].strip()
+        if not goal:
+            return jsonify({"status": "ERROR", "error": "Goal cannot be empty"}), 400
+
+        result = generate_task_breakdown(goal)
+        if result.get("status") == "ERROR":
+            return jsonify(result), 400
+
+        # Validate the response data structure
+        if "data" in result:
+            try:
+                planning_response = PlanningResponse(**result["data"])
+                result["data"] = planning_response.dict()
+            except Exception as e:
+                logging.error(f"Response validation error: {str(e)}")
+                return jsonify({
+                    "status": "ERROR",
+                    "error": "Invalid response format from AI"
+                }), 500
+            
+        return jsonify(result)
+
+    except Exception as e:
+        logging.error(f"Error in generate_plan: {str(e)}")
+        return jsonify({
+            "status": "ERROR",
+            "error": "An unexpected error occurred"
+        }), 500
+
+if __name__ == "__main__":
+    app.run(debug=True)
+import json
+import logging
+import concurrent.futures
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+from dotenv import load_dotenv
+import google.generativeai as genai
+from typing import List, Optional, Union, Dict
+from pydantic import BaseModel, Field
+import re
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)
+
+# Environment variables
+load_dotenv()
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-pro").strip()
+USE_STUB = os.getenv("USE_STUB", "false").lower() in ("1", "true", "yes")
+GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
+# Configure Gemini API
+if GOOGLE_API_KEY and not USE_STUB:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    API_AVAILABLE = True
+else:
+    API_AVAILABLE = False
+
+class Task(BaseModel):
+    task_id: int
+    description: str
+    estimated_days: int
+    depends_on_id: int = 0
+    priority: Optional[str] = Field(None, description="Priority level of the task")
+    skills_needed: Optional[List[str]] = Field(None, description="Required skills for the task")
+    resources: Optional[List[str]] = Field(None, description="Required resources for the task")
+
+class PlanningResponse(BaseModel):
+    tasks: List[Task]
+    total_duration: int
+    key_milestones: Optional[List[str]] = None
+    risk_factors: Optional[List[str]] = None
+    recommendations: Optional[List[str]] = None
+
+def is_task_prompt(user_input: str) -> bool:
+    """Detect if the user input is requesting a task breakdown."""
+    task_keywords = [
+        "plan", "task", "break down", "breakdown", "steps", "schedule",
+        "organize", "create", "build", "develop", "implement", "launch",
+        "how to", "what steps", "roadmap"
+    ]
+    return any(keyword in user_input.lower() for keyword in task_keywords)
+
+def construct_prompt(user_input: str, is_task: bool = True) -> str:
+    """Construct a dynamic prompt based on user input."""
+    if is_task:
+        return f"""You are an expert project manager AI assistant. Analyze this goal and create a detailed project plan:
+        
+GOAL: {user_input}
+
+Provide a comprehensive breakdown including:
+
+1. A sequence of 4-8 tasks with:
+   - Clear, detailed descriptions with bullet points for specific actions
+   - Realistic time estimates in days
+   - Dependencies between tasks
+   - Required skills or resources
+   - Priority level (High/Medium/Low)
+
+2. Additional planning insights:
+   - Key milestones to watch for
+   - Potential risk factors
+   - Specific recommendations
+
+Format the response as JSON:
+{{
+    "tasks": [
+        {{
+            "task_id": 1,
+            "description": "Task name\\nAction Items:\\n- Specific step 1\\n- Specific step 2\\n- Specific step 3",
+            "estimated_days": X,
+            "depends_on_id": 0,
+            "priority": "High/Medium/Low",
+            "skills_needed": ["skill1", "skill2"],
+            "resources": ["resource1", "resource2"]
+        }}
+    ],
+    "total_duration": X,
+    "key_milestones": ["milestone1", "milestone2"],
+    "risk_factors": ["risk1", "risk2"],
+    "recommendations": ["recommendation1", "recommendation2"]
+}}
+
+Make all tasks:
+- Specific and actionable
+- Realistically scoped
+- Industry-standard and professional
+- Properly sequenced with clear dependencies"""
+    else:
+        return f"""You are an expert consultant. Please provide detailed, professional advice for this query:
+
+QUERY: {user_input}
+
+Give practical, actionable guidance that is:
+- Specific and implementable
+- Based on industry best practices
+- Backed by professional experience
+- Organized in clear sections
+
+Focus on providing real-world, concrete steps and recommendations."""
+
+def parse_ai_response(response_text: str) -> Union[Dict, str]:
+    """Parse the AI response and extract JSON if present."""
+    try:
+        # Look for JSON structure in the response
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            json_str = json_match.group(0)
+            return json.loads(json_str)
+        return response_text
+    except json.JSONDecodeError:
+        return response_text
+
+def generate_task_breakdown(goal: str) -> dict:
+    """Generate a comprehensive task breakdown using Gemini AI"""
+    try:
+        if not is_task_prompt(goal):
+            return {"status": "ERROR", "error": "This input doesn't appear to be a task-based request. Please try rephrasing with action-oriented terms."}
+
+        if not API_AVAILABLE and not USE_STUB:
+            return {"status": "ERROR", "error": "API is not available and stub mode is disabled"}
+
+        if USE_STUB:
+            # Dynamic stub response that adapts to the input
+            response_data = {
+                "tasks": [
+                    {
+                        "task_id": 1,
+                        "description": f"Initial Research & Planning\nAction Items:\n- Research best practices for {goal}\n- Identify key requirements\n- Define project scope\n- Create initial timeline",
+                        "estimated_days": 3,
+                        "depends_on_id": 0,
+                        "priority": "High",
+                        "skills_needed": ["Research", "Planning", "Analysis"],
+                        "resources": ["Project documentation", "Industry reports"]
+                    },
+                    {
+                        "task_id": 2,
+                        "description": f"Design & Strategy\nAction Items:\n- Develop detailed approach for {goal}\n- Create implementation plan\n- Define success metrics\n- Prepare resource allocation",
+                        "estimated_days": 4,
+                        "depends_on_id": 1,
+                        "priority": "High",
+                        "skills_needed": ["Strategy", "Design Thinking"],
+                        "resources": ["Design tools", "Planning software"]
+                    },
+                    {
+                        "task_id": 3,
+                        "description": "Implementation & Development\nAction Items:\n- Execute core deliverables\n- Track progress\n- Coordinate with team\n- Document processes",
+                        "estimated_days": 5,
+                        "depends_on_id": 2,
+                        "priority": "Medium",
+                        "skills_needed": ["Project Management", "Technical Skills"],
+                        "resources": ["Development tools", "Team collaboration platform"]
+                    },
+                    {
+                        "task_id": 4,
+                        "description": "Testing & Refinement\nAction Items:\n- Conduct thorough testing\n- Gather feedback\n- Make improvements\n- Prepare for launch",
+                        "estimated_days": 3,
+                        "depends_on_id": 3,
+                        "priority": "Medium",
+                        "skills_needed": ["Quality Assurance", "Communication"],
+                        "resources": ["Testing tools", "Feedback forms"]
+                    }
+                ],
+                "total_duration": 15,
+                "key_milestones": [
+                    f"Complete research and planning for {goal}",
+                    "Strategy and design approval",
+                    "Core implementation finished",
+                    "Final testing and launch readiness"
+                ],
+                "risk_factors": [
+                    "Timeline constraints",
+                    "Resource availability",
+                    "Technical challenges",
+                    "Stakeholder alignment"
+                ],
+                "recommendations": [
+                    "Start with thorough research phase",
+                    "Maintain regular stakeholder communication",
+                    "Document all decisions and progress",
+                    "Build in buffer time for unexpected issues"
+                ]
+            }
+            return {"status": "SUCCESS", "data": response_data}
+
+        # Use Gemini API for dynamic response
+        prompt = construct_prompt(goal, is_task=True)
+        model = genai.GenerativeModel('gemini-pro')
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(lambda: model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.7,
+                    max_output_tokens=2048
+                )
+            ))
+            try:
+                response = future.result(timeout=25)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                raise TimeoutError("AI call timed out after 25 seconds")
+
+        if not response.text:
+            raise ValueError("Empty response from AI")
+
+        # Parse the AI response
+        response_data = parse_ai_response(response.text)
+        if isinstance(response_data, str):
+            # If we got a string instead of JSON, wrap it in a proper response
+            return {
+                "status": "SUCCESS",
+                "data": {
+                    "tasks": [{
+                        "task_id": 1,
+                        "description": response_data,
+                        "estimated_days": 1,
+                        "depends_on_id": 0
+                    }]
+                }
+            }
+
+        return {"status": "SUCCESS", "data": response_data}
+
+    except Exception as e:
+        logging.error(f"Error in generate_task_breakdown: {str(e)}")
+        return {
+            "status": "ERROR",
+            "error": f"Failed to generate plan: {str(e)}"
+        }
+            {
+                "task_id": 2,
+                "description": "Content Strategy Development\nAction Items:\n- Define key messages\n- Plan content calendar\n- Choose marketing channels\n- Set measurable KPIs",
+                "estimated_days": 4,
+                "depends_on_id": 1
+            },
+            {
+                "task_id": 3,
+                "description": "Creative Asset Production\nAction Items:\n- Design visual materials\n- Write copy and headlines\n- Create social media posts\n- Prepare email templates",
+                "estimated_days": 5,
+                "depends_on_id": 2
+            },
+            {
+                "task_id": 4,
+                "description": "Campaign Launch & Monitoring\nAction Items:\n- Set up tracking tools\n- Launch campaign elements\n- Monitor performance\n- Adjust based on feedback",
+                "estimated_days": 3,
+                "depends_on_id": 3
+            }
+        ]
+
+        app_tasks = [
+            {
+                "task_id": 1,
+                "description": "Requirements & Planning\nAction Items:\n- Define app features\n- Create user stories\n- Plan technical architecture\n- Choose development stack",
+                "estimated_days": 4,
+                "depends_on_id": 0
+            },
+            {
+                "task_id": 2,
+                "description": "UI/UX Design\nAction Items:\n- Create wireframes\n- Design user interface\n- Plan user flows\n- Conduct usability tests",
+                "estimated_days": 5,
+                "depends_on_id": 1
+            },
+            {
+                "task_id": 3,
+                "description": "Core Development\nAction Items:\n- Set up development environment\n- Implement core features\n- Create API integrations\n- Build database schema",
+                "estimated_days": 7,
+                "depends_on_id": 2
+            },
+            {
+                "task_id": 4,
+                "description": "Testing & Deployment\nAction Items:\n- Perform unit testing\n- Conduct beta testing\n- Fix reported issues\n- Deploy to app stores",
+                "estimated_days": 4,
+                "depends_on_id": 3
+            }
+        ]
+
+        event_tasks = [
+            {
+                "task_id": 1,
+                "description": "Event Planning Foundation\nAction Items:\n- Set event objectives\n- Define budget\n- Choose venue options\n- Create event timeline",
+                "estimated_days": 3,
+                "depends_on_id": 0
+            },
+            {
+                "task_id": 2,
+                "description": "Logistics & Vendor Management\nAction Items:\n- Book venue\n- Contact caterers\n- Arrange equipment\n- Plan room layouts",
+                "estimated_days": 4,
+                "depends_on_id": 1
+            },
+            {
+                "task_id": 3,
+                "description": "Program & Content Planning\nAction Items:\n- Plan agenda\n- Book speakers\n- Create materials\n- Design presentations",
+                "estimated_days": 5,
+                "depends_on_id": 2
+            },
+            {
+                "task_id": 4,
+                "description": "Marketing & Registration\nAction Items:\n- Create promotional materials\n- Set up registration system\n- Send invitations\n- Track responses",
+                "estimated_days": 3,
+                "depends_on_id": 3
+            }
+        ]
+
+        # Choose tasks based on keywords in the goal and customize them
+        goal = goal.lower()
+        if any(word in goal for word in ["market", "campaign", "promotion", "advertis"]):
+            tasks = generate_dynamic_tasks(goal, marketing_tasks)
+        elif any(word in goal for word in ["app", "application", "mobile", "develop", "website"]):
+            tasks = generate_dynamic_tasks(goal, app_tasks)
+        elif any(word in goal for word in ["event", "conference", "workshop", "meeting"]):
+            tasks = generate_dynamic_tasks(goal, event_tasks)
+        else:
+            # For other types of goals, analyze keywords to choose best template
+            tech_keywords = ["software", "platform", "system", "tool"]
+            marketing_keywords = ["launch", "promote", "brand", "sales"]
+            event_keywords = ["organize", "plan", "host", "coordinate"]
+            
+            if any(word in goal for word in tech_keywords):
+                tasks = generate_dynamic_tasks(goal, app_tasks)
+            elif any(word in goal for word in marketing_keywords):
+                tasks = generate_dynamic_tasks(goal, marketing_tasks)
+            elif any(word in goal for word in event_keywords):
+                tasks = generate_dynamic_tasks(goal, event_tasks)
+            else:
+                # Use app_tasks as fallback but customize them heavily
+                tasks = generate_dynamic_tasks(goal, app_tasks)
+        
+        return {"status": "SUCCESS", "tasks": tasks}
+
+    if not API_AVAILABLE:
+        return {"status": "ERROR", "error": "Gemini API not available"}, 503
+
+    try:
+        # Create the prompt for task breakdown
+        prompt = f"""As an expert project manager, break down this goal into detailed, actionable tasks:
+        GOAL: {goal}
+        
+        Create 4-6 tasks with:
+        1. Detailed task descriptions including:
+           - Main task objective
+           - 3-4 specific action items for each task
+           - Key deliverables or outcomes
+        2. Realistic time estimates in days
+        3. Logical dependencies between tasks
+        
+        Format as JSON array with detailed descriptions:
+        [
+            {{
+                "task_id": 1,
+                "description": "Task Title\\nAction Items:\\n- Specific step 1\\n- Specific step 2\\n- Specific step 3\\n- Specific step 4",
+                "estimated_days": X,
+                "depends_on_id": 0
+            }},
+            // More tasks...
+        ]
+        
+        Make each task:
+        - Specific and actionable
+        - Measurable with clear outcomes
+        - Detailed enough for execution
+        - Logically sequenced
+        - Realistic in time estimation"""
+
+        # Generate response from Gemini with timeout
+        model = genai.GenerativeModel('gemini-2.5-pro')
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(lambda: model.generate_content(prompt))
+            try:
+                response = future.result(timeout=25)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                raise TimeoutError("AI call timed out after 25 seconds")
+        
+        if not response.text:
+            raise ValueError("Empty response from Gemini")
+
+        # Extract JSON from response
+        text = response.text
+        start = text.find('[')
+        end = text.rfind(']') + 1
+        
+        if start == -1 or end == 0:
+            raise ValueError("No JSON array found in response")
+            
+        json_str = text[start:end]
+        tasks_data = json.loads(json_str)
+        
+        # Validate tasks through Pydantic
+        validated_tasks = [Task(**task).dict() for task in tasks_data]
+        
+        return {
+            "status": "SUCCESS",
+            "tasks": validated_tasks
+        }
+
+    except Exception as e:
+        print(f"Error in generate_task_breakdown: {str(e)}")  # Debug print
+        return {
+            "status": "ERROR",
+            "error": f"Failed to generate plan: {str(e)}"
+        }
+
+@app.route('/')
+def index():
+    """Serve the main page"""
+    return render_template('index.html')
+
+@app.route('/generate-plan', methods=['POST'])
+def create_plan():
+    """Handle the plan generation request"""
+    try:
+        # Validate request
+        if not request.is_json:
+            return jsonify({"status": "ERROR", "error": "Request must be JSON"}), 400
+            
+        data = request.get_json()
+        goal = data.get('goal')
+        
+        if not goal or not goal.strip():
+            return jsonify({"status": "ERROR", "error": "Goal cannot be empty"}), 400
+
+        # Generate the task plan
+        result = generate_task_breakdown(goal.strip())
+        
+        if result["status"] == "ERROR":
+            return jsonify(result), 500
+            
+        # Add metadata to response
+        result["metadata"] = {
+            "goal": goal,
+            "total_tasks": len(result["tasks"]),
+            "total_days": sum(task["estimated_days"] for task in result["tasks"])
+        }
+        
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            "status": "ERROR",
+            "error": str(e)
+        }), 500
+
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({
+        "status": "ERROR",
+        "error": "Resource not found"
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({
+        "status": "ERROR",
+        "error": "Internal server error"
+    }), 500
+
+if __name__ == "__main__":
+    # Load environment variables
+    load_dotenv()
+
+    # Configure Gemini API at runtime
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key and not USE_STUB:
+        try:
+            genai.configure(api_key=api_key)
+            API_AVAILABLE = True
+            logging.info("Configured Gemini client successfully")
+        except Exception as e:
+            logging.error("Failed to configure Gemini: %s", e)
+    else:
+        if USE_STUB:
+            logging.info("Running in stub mode (USE_STUB=true)")
+        else:
+            logging.warning("No API key found - API calls will be unavailable")
+
+    try:
+        print("\n✨ Smart Task Planner")
+        print("--------------------")
+        print("🌟 Configuration:")
+        print(f"   - API Key: {'✓' if api_key else '✗'}")
+        print(f"   - Stub Mode: {'✓' if USE_STUB else '✗'}")
+        print("   - Templates: ✓")
+        print("\n🚀 Starting server...")
+        print("   URL: http://127.0.0.1:5000")
+        print("--------------------\n")
+        
+        app.run(debug=False, host='127.0.0.1', port=5000)
+        
+    except Exception as e:
+        logging.error("Failed to start server: %s", e)
+        exit(1)

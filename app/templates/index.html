@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Task Planner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        @keyframes move-background {
+            0% { background-position: 0 0; }
+            100% { background-position: 500px 500px; }
+        }
+
+        @keyframes float-moon {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        body {
+            background: #0B0B1E;
+            min-height: 100vh;
+            padding: 2rem;
+            color: #2d3748;
+            position: relative;
+        }
+
+        .moon {
+            position: fixed;
+            top: 50px;
+            right: 50px;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #FEFCD7, #FFF9C4);
+            box-shadow: 
+                0 0 50px #FFF9C4,
+                0 0 100px rgba(255, 249, 196, 0.4),
+                inset -20px -20px 50px rgba(0,0,0,0.2);
+            z-index: 1;
+            animation: float-moon 6s ease-in-out infinite;
+        }
+
+        .stars-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .stars-container::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            right: -50%;
+            bottom: -50%;
+            background-image: 
+                radial-gradient(2px 2px at 20px 30px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 40px 70px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 50px 160px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 90px 40px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(2px 2px at 130px 80px, #ffffff, rgba(0,0,0,0)),
+                radial-gradient(3px 3px at 160px 120px, #ffffff, rgba(0,0,0,0));
+            background-repeat: repeat;
+            background-size: 200px 200px;
+            animation: move-background 60s linear infinite;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.97);
+            padding: 2.5rem;
+            border-radius: 20px;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            position: relative;
+            z-index: 2;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+
+        .moon::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 25px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.1);
+            box-shadow: 
+                15px 30px 0 -3px rgba(0,0,0,0.1),
+                -10px 40px 0 -2px rgba(0,0,0,0.1),
+                30px 15px 0 -4px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        h1 {
+            font-size: 3rem;
+            color: #2d3748;
+            margin-bottom: 1.2rem;
+            background: linear-gradient(120deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(102,126,234,0.3);
+        }
+
+        .subtitle {
+            color: #4a5568;
+            font-size: 1.3rem;
+            font-weight: 400;
+            line-height: 1.5;
+        }
+
+        .input-section {
+            background: #ffffff;
+            padding: 2rem 0;
+            margin-bottom: 2.5rem;
+        }
+
+        .input-group {
+            margin-bottom: 2rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 1rem;
+            color: #4a5568;
+            font-weight: 500;
+            font-size: 1.1rem;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 1rem;
+            min-height: 120px;
+            transition: all 0.2s ease;
+            resize: vertical;
+            background: #f8fafc;
+            color: #2d3748;
+        }
+
+        textarea:focus {
+            outline: none;
+            background: #ffffff;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+        }
+
+        .example-goals {
+            margin-top: 1rem;
+            font-size: 0.75rem;
+            color: #787774;
+        }
+
+        .example-goals span {
+            display: inline-block;
+            margin: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            background: #f7f7f7;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .example-goals span:hover {
+            background: #e9e9e8;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1.2rem 2.5rem;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 6px rgba(102,126,234,0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(102,126,234,0.4);
+            background: linear-gradient(135deg, #5a6fd6 0%, #6a43a9 100%);
+        }
+
+        button:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 2rem 0;
+            color: #787774;
+            font-size: 0.875rem;
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            margin: 0 auto 0.5rem;
+            position: relative;
+        }
+
+        .spinner::before,
+        .spinner::after {
+            content: '';
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #e9e9e8;
+            animation: bounce 1s infinite ease-in-out;
+        }
+
+        .spinner::before {
+            left: 0;
+        }
+
+        .spinner::after {
+            right: 0;
+            animation-delay: 0.5s;
+        }
+
+        @keyframes bounce {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(0.5);
+                opacity: 0.5;
+            }
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .task-list {
+            display: grid;
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .task-card {
+            background: linear-gradient(to right, #ffffff, #f8fafc);
+            border: 1px solid rgba(102,126,234,0.2);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05),
+                       0 0 20px rgba(102,126,234,0.1);
+            padding: 1.8rem;
+            margin-bottom: 1.8rem;
+            border-radius: 15px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border-left: 5px solid #667eea;
+            font-size: 1.1rem;
+        }
+
+        .task-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1),
+                       0 0 30px rgba(102,126,234,0.2);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .task-id {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .task-days {
+            background: #f7fafc;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            color: #4a5568;
+        }
+
+        .task-description {
+            color: #4a5568;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+            white-space: pre-line;
+        }
+
+        .task-description ul {
+            margin-top: 0.5rem;
+            margin-left: 1.5rem;
+            list-style-type: disc;
+        }
+
+        .task-dependency {
+            font-size: 0.9rem;
+            color: #718096;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .planning-insights {
+            background: linear-gradient(to right, #ffffff, #f8fafc);
+            border: 1px solid #e2e8f0;
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .insight-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .insight-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .insight-section h3 {
+            font-size: 1.1rem;
+            color: #2d3748;
+            margin-bottom: 0.75rem;
+        }
+
+        .insight-section ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .insight-section li {
+            margin-bottom: 0.5rem;
+            padding-left: 1.5rem;
+            position: relative;
+            line-height: 1.5;
+            color: #4a5568;
+        }
+
+        .insight-section li::before {
+            content: "•";
+            position: absolute;
+            left: 0.5rem;
+            color: #667eea;
+        }
+
+        .task-meta {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .task-priority {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .task-priority.high {
+            background-color: #FED7D7;
+            color: #C53030;
+        }
+
+        .task-priority.medium {
+            background-color: #FEFCBF;
+            color: #975A16;
+        }
+
+        .task-priority.low {
+            background-color: #C6F6D5;
+            color: #2F855A;
+        }
+
+        .task-skills, .task-resources {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #4a5568;
+        }
+
+        .skill-tag, .resource-tag {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: #EBF4FF;
+            color: #4C51BF;
+            border-radius: 15px;
+            margin: 0.25rem;
+            font-size: 0.8rem;
+        }
+
+        .resource-tag {
+            background: #F0FFF4;
+            color: #2F855A;
+        }
+
+        .total-duration {
+            text-align: center;
+            font-size: 1.1rem;
+            color: #2d3748;
+            margin-top: 2rem;
+            padding: 1rem;
+            background: linear-gradient(to right, #ffffff, #f8fafc);
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+
+        .error-message {
+            background: #fdebeb;
+            color: #37352f;
+            padding: 0.75rem;
+            border-radius: 3px;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+            border: 1px solid #fcc;
+        }
+
+        .success-message {
+            background: #eef7ee;
+            color: #37352f;
+            padding: 0.75rem;
+            border-radius: 3px;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+            border: 1px solid #cfc;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+
+            .container {
+                padding: 1.5rem;
+                margin-bottom: 1rem;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .task-card {
+                padding: 1rem;
+            }
+
+            .moon {
+                width: 60px;
+                height: 60px;
+                top: 20px;
+                right: 20px;
+            }
+
+            .moon::before {
+                transform: scale(0.6);
+                top: 12px;
+                left: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="stars-container"></div>
+    <div class="moon"></div>
+    <div class="container">
+        <div class="header">
+            <h1>✨ Smart Task Planner</h1>
+            <p class="subtitle">Transform your goals into actionable tasks with AI-powered planning</p>
+        </div>
+
+        <div class="input-section">
+            <div class="input-group">
+                <label for="goal">What's your goal? 🎯</label>
+                <textarea 
+                    id="goal" 
+                    placeholder="Describe your goal in detail. For example: Launch a new mobile app in 3 months, or Organize a company event for 100 people..."
+                ></textarea>
+                <div class="example-goals">
+                    <strong>Try these examples:</strong>
+                    <span onclick="setExample(this)">Launch a marketing campaign in 2 weeks</span>
+                    <span onclick="setExample(this)">Build a mobile app in 1 month</span>
+                    <span onclick="setExample(this)">Organize a conference in 3 months</span>
+                </div>
+            </div>
+            <button onclick="generatePlan()" id="generate-btn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                    <path d="M8 1v14M1 8h14" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Create plan
+            </button>
+        </div>
+
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>Creating your personalized plan...</p>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function setExample(element) {
+            document.getElementById('goal').value = element.textContent;
+        }
+
+        async function generatePlan() {
+            const goal = document.getElementById('goal').value;
+            const resultDiv = document.getElementById('result');
+            const loadingDiv = document.querySelector('.loading');
+            const generateBtn = document.getElementById('generate-btn');
+            
+            if (!goal.trim()) {
+                resultDiv.innerHTML = `
+                    <div class="error-message">
+                        <strong>Oops!</strong> Please enter your goal first! 🎯
+                    </div>`;
+                return;
+            }
+
+            try {
+                // Disable button and show loading
+                generateBtn.disabled = true;
+                loadingDiv.style.display = 'block';
+                resultDiv.innerHTML = '';
+
+                const response = await fetch('/generate-plan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ goal: goal })
+                });
+                
+                const data = await response.json();
+                
+                console.log('Response data:', data); // Debug log
+                
+                if (data.status === 'SUCCESS' && data.data && Array.isArray(data.data.tasks)) {
+                    let html = `
+                        <div class="success-message">
+                            🎉 Your plan is ready! Here's your step-by-step breakdown:
+                        </div>
+                        <div class="task-list">
+                    `;
+
+                    // Extract planning insights if available
+                    if (data.data.key_milestones || data.data.risk_factors || data.data.recommendations) {
+                        html += `
+                            <div class="planning-insights">
+                                ${data.data.key_milestones ? `
+                                    <div class="insight-section">
+                                        <h3>🎯 Key Milestones</h3>
+                                        <ul>
+                                            ${data.data.key_milestones.map(milestone => `<li>${milestone}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                
+                                ${data.data.risk_factors ? `
+                                    <div class="insight-section">
+                                        <h3>⚠️ Risk Factors</h3>
+                                        <ul>
+                                            ${data.data.risk_factors.map(risk => `<li>${risk}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                
+                                ${data.data.recommendations ? `
+                                    <div class="insight-section">
+                                        <h3>💡 Recommendations</h3>
+                                        <ul>
+                                            ${data.data.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    }
+                    
+                    // Task cards
+                    data.data.tasks.forEach(task => {
+                        const dependsOn = task.depends_on_id === 0 ? 'None' : `Task ${task.depends_on_id}`;
+                        html += `
+                            <div class="task-card">
+                                <div class="task-header">
+                                    <div class="task-id">Task ${task.task_id}</div>
+                                    <div class="task-meta">
+                                        <span class="task-days">⏱️ ${task.estimated_days} day${task.estimated_days > 1 ? 's' : ''}</span>
+                                        ${task.priority ? `<span class="task-priority ${task.priority.toLowerCase()}">🎯 ${task.priority}</span>` : ''}
+                                    </div>
+                                </div>
+                                <div class="task-description">${task.description}</div>
+                                ${task.skills_needed ? `
+                                    <div class="task-skills">
+                                        <strong>Required Skills:</strong>
+                                        ${task.skills_needed.map(skill => `<span class="skill-tag">${skill}</span>`).join('')}
+                                    </div>
+                                ` : ''}
+                                ${task.resources ? `
+                                    <div class="task-resources">
+                                        <strong>Resources:</strong>
+                                        ${task.resources.map(resource => `<span class="resource-tag">${resource}</span>`).join('')}
+                                    </div>
+                                ` : ''}
+                                <div class="task-dependency">
+                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+                                    </svg>
+                                    Depends on: ${dependsOn}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    if (data.data.total_duration) {
+                        html += `
+                            <div class="total-duration">
+                                📅 Total estimated duration: ${data.data.total_duration} days
+                            </div>
+                        `;
+                    }
+                    
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error-message">
+                            <strong>Error:</strong> ${data.error || 'Failed to generate plan'}
+                        </div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error-message">
+                        <strong>Error:</strong> ${error.message || 'Failed to connect to server'}
+                    </div>`;
+            } finally {
+                // Re-enable button and hide loading
+                generateBtn.disabled = false;
+                loadingDiv.style.display = 'none';
+            }
+        }
+
+        // Enable pressing Enter key in textarea
+        document.getElementById('goal').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                generatePlan();
+            }
+        });
+    </script>
+</body>
+</html>
